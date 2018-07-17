@@ -16,6 +16,17 @@
 
 #define BIDIRECTIONAL 0
 
+/**************** MACROS ****************/
+/******** possible events: ********/
+#define  TIMER_INTERRUPT 0
+#define  FROM_LAYER5     1
+#define  FROM_LAYER3     2
+#define  OFF    0
+#define  ON     1
+#define  A      0
+#define  B      1
+
+/**************** STRUCT DEFINITIONS ****************/
 /* a "msg" is the data unit passed from layer 5 (teachers code) to layer  */
 /* 4 (students' code).  It contains the data (characters) to be delivered */
 /* to layer 5 via the students transport level protocol entities.         */
@@ -33,13 +44,94 @@ struct pkt {
    char payload[20];
 };
 
+struct event {
+   float evtime;           /* event time */
+   int evtype;             /* event type code */
+   int eventity;           /* entity where event occurs */
+   struct pkt *pktptr;     /* ptr to packet (if any) assoc w/ this event */
+   struct event *prev;
+   struct event *next;
+};
 
-/******** STUDENT DECLARATIONS ********/
-#define A   0
-#define B   1
+/**************** GLOBALS ****************/
+int TRACE = 1;             /* for my debugging */
+int nsim = 0;              /* number of messages from 5 to 4 so far */ 
+int nsimmax = 0;           /* number of msgs to generate, then stop */
+float time = 0.000;
+float lossprob;            /* probability that a packet is dropped  */
+float corruptprob;         /* probability that one bit is packet is flipped */
+float lambda;              /* arrival rate of messages from layer 5 */   
+int   ntolayer3;           /* number sent into layer 3 */
+int   nlost;               /* number lost in media */
+int   ncorrupt;            /* number corrupted by media*/
 
-/**** State struct ****/
+/**************** FUNCTION DECLARATIONS ****************/
+void init();
+void generate_next_arrival();
+void tolayer5(int AorB, char datasent[20]);
+void tolayer3(int AorB, struct pkt packet);
+void starttimer(int AorB, float increment);
+void stoptimer(int AorB);
+void insertevent(struct event *p);
+void init();
+float jimsrand();
+void printevlist();
 
+/* ******************************************************************
+ * STUDENT DECLARATIONS
+ *
+ *********************************************************************/
+
+/**************** MACROS ****************/
+
+/******** FSM ********/
+/**** TX ****/
+#define WAIT_FOR_0_FROM_ABOVE   &TX_STATE_MACHINE[0]
+#define WAIT_FOR_ACK0           &TX_STATE_MACHINE[1]
+#define WAIT_FOR_1_FROM_ABOVE   &TX_STATE_MACHINE[2]
+#define WAIT_FOR_ACK1           &TX_STATE_MACHINE[3]
+/**** RX ****/
+#define WAIT_FOR_SEQ0 &RX_STATE_MACHINE[0]
+#define WAIT_FOR_SEQ1 &RX_STATE_MACHINE[1]
+
+/******** DEBUG ********/
+/**** SWITCHES ****/
+#define DEBUG_MESSAGES
+#define DEBUG_PACKETS
+#define DEBUG_STATES
+/**** PRINTS ****/
+/** PACKET **/
+#ifdef DEBUG_MESSAGES
+#  define DEBUG(x) printf("\nDEBUG***"); printf x
+#else
+#  define DEBUG(x) do {} while (0)
+#endif
+/** STATE **/
+#ifdef DEBUG_STATES
+#  define DEBUG_TX_STATE(x, y) printf("\nDEBUG***"); if (x == A) printf("ATX"); else printf("BTX"); printf(" -> STATE_ID:%d",y->state_num)
+#  define DEBUG_RX_STATE(x, y) printf("\nDEBUG***"); if (x == A) printf("ARX"); else printf("BRX"); printf(" -> STATE_ID:%d",y->state_num)
+#else
+#  define DEBUG_TX_STATE(x, y) do {} while (0);
+#  define DEBUG_RX_STATE(x, y) do {} while (0);
+#endif
+/** MISC **/
+#ifdef DEBUG_PACKETS
+#  define DEBUG_PKT(x) printf("\nDEBUG***PACKET -> SEQNUM:%d | ACKNUM:%d | CHECKSUM:%u | PAYLOAD:%s", x->seqnum, x->acknum, x->checksum, x->payload);
+#else
+#  define DEBUG_PKT(x) do {} while (0)
+#endif
+
+/******** OTHER ********/
+/**** TIMER INCREMENT ****/
+#define TIMER_INCREMENT 20.0f
+/**** PACKET STATUSES ****/
+#define PKT_OK      0
+#define PKT_CORRUPT 1
+#define PKT_TIMEOUT 2
+#define PKT_NAK     3
+#define PKT_DUP     4
+
+/**************** STRUCT DEFINITIONS ****************/
 struct TX_State
 {
     int state_num;
@@ -56,10 +148,7 @@ struct RX_State
     struct RX_State *next_state;
 };
 
-#define WAIT_FOR_0_FROM_ABOVE   &TX_STATE_MACHINE[0]
-#define WAIT_FOR_ACK0           &TX_STATE_MACHINE[1]
-#define WAIT_FOR_1_FROM_ABOVE   &TX_STATE_MACHINE[2]
-#define WAIT_FOR_ACK1           &TX_STATE_MACHINE[3]
+/**************** GLOBALS ****************/
 
 struct TX_State TX_STATE_MACHINE[] = {
 /*WAIT_FOR_0_FROM_ABOVE*/   {0, 0, -1, WAIT_FOR_ACK0},
@@ -67,54 +156,34 @@ struct TX_State TX_STATE_MACHINE[] = {
 /*WAIT_FOR_1_FROM_ABOVE*/   {2, 1, -1, WAIT_FOR_ACK1},
 /*WAIT_FOR_ACK1*/           {3, 1, 1,  WAIT_FOR_0_FROM_ABOVE}
 };
-
-#define WAIT_FOR_SEQ0 &RX_STATE_MACHINE[0]
-#define WAIT_FOR_SEQ1 &RX_STATE_MACHINE[1]
-
 struct RX_State RX_STATE_MACHINE[] = {
 /*WAIT_FOR_SEQ0*/   {0, 0, 0, WAIT_FOR_SEQ1},
 /*WAIT_FOR_SEQ1*/   {1, 1, 1, WAIT_FOR_SEQ0}
 };
+int CHANNEL_IN_USE; //used to only allow one message to be sent on the medium at a time
+struct TX_State *TX_STATE[2];
+struct TX_STATE *ATX_STATE = WAIT_FOR_0_FROM_ABOVE;
+struct RX_STATE *ARX_STATE = WAIT_FOR_SEQ0;
+struct RX_State *RX_STATE[2];
+struct TX_STATE *BTX_STATE = WAIT_FOR_0_FROM_ABOVE;
+struct RX_STATE *BRX_STATE = WAIT_FOR_SEQ0;
+struct pkt LAST_UNACKED_PKT[2];
 
-/**** DEBUG DECLARATIONS ****/
-#define DEBUG_MESSAGES
-#define DEBUG_PACKETS
-#define DEBUG_STATES
 
-#ifdef DEBUG_MESSAGES
-#  define DEBUG(x) printf("\nDEBUG***"); printf x
-#else
-#  define DEBUG(x) do {} while (0)
-#endif
+/**************** FUNCTION DECLARATIONS ****************/
+struct pkt* pkt_init(struct pkt *pkt, int seqnum, int acknum, struct msg *msg);
+struct pkt* ackpkt_init(struct pkt *pkt, int acknum);
+struct pkt* nakpkt_init(struct pkt *pkt);
+int validate_checksum(struct pkt* pkt);
+int generate_checksum(struct pkt* pkt);
+struct msg* msg_init(struct msg *msg, char** data);
+int evaluate_tx_state(struct TX_State *state, struct pkt *pkt);
+int evaluate_rx_state(struct RX_State *state, struct pkt *pkt);
+int toggle(int binary_num);
 
-#ifdef DEBUG_PACKETS
-#  define DEBUG_PKT(x) printf("\nDEBUG***PACKET -> SEQNUM:%d | ACKNUM:%d | CHECKSUM:%u | PAYLOAD:%s", x->seqnum, x->acknum, x->checksum, x->payload);
-#else
-#  define DEBUG_PKT(x) do {} while (0)
-#endif
+/**************** FUNCTION DEFINITIONS ****************/
 
-#ifdef DEBUG_STATES
-#  define DEBUG_TX_STATE(x, y) printf("\nDEBUG***"); if (x == A) printf("ATX"); else printf("BTX"); printf(" -> STATE_ID:%d",y->state_num)
-#  define DEBUG_RX_STATE(x, y) printf("\nDEBUG***"); if (x == A) printf("ARX"); else printf("BRX"); printf(" -> STATE_ID:%d",y->state_num)
-#else
-#  define DEBUG_TX_STATE(x, y) do {} while (0);
-#  define DEBUG_RX_STATE(x, y) do {} while (0);
-#endif
-
-/**** HELPERS ****/
-
-/** timer constant **/
-
-#define TIMERVAL    f20.0
-
-/** struct pkt HELPERS **/
-
-#define PKT_OK      0
-#define PKT_CORRUPT 1
-#define PKT_TIMEOUT 2
-#define PKT_NAK     3
-#define PKT_DUP     4
-
+/******** HELPER FUNCTIONS ********/
 struct pkt* pkt_init(struct pkt *pkt, int seqnum, int acknum, struct msg *msg)
 {
   pkt->seqnum = seqnum;
@@ -125,11 +194,23 @@ struct pkt* pkt_init(struct pkt *pkt, int seqnum, int acknum, struct msg *msg)
   return pkt;
 }
 
-struct pkt* ackpkt_init(struct pkt *pkt, int seqnum, int acknum)
+struct pkt* ackpkt_init(struct pkt *pkt, int acknum)
 {
   int i;
-  pkt->seqnum = seqnum;
+  pkt->seqnum = -1;
   pkt->acknum = acknum;
+  for (i = 0; i < 20; i++) {
+    pkt->payload[i] = "A";
+  }
+  pkt->checksum = generate_checksum(pkt);
+  return pkt;
+}
+
+struct pkt* nakpkt_init(struct pkt *pkt)
+{
+  int i;
+  pkt->seqnum = -1;
+  pkt->acknum = -2;
   for (i = 0; i < 20; i++) {
     pkt->payload[i] = "A";
   }
@@ -163,7 +244,6 @@ int generate_checksum(struct pkt* pkt)
   return checksum;
 }
 
-/** struct msg HELPERS **/
 struct msg* msg_init(struct msg *msg, char** data)
 {
   int i;
@@ -174,7 +254,6 @@ struct msg* msg_init(struct msg *msg, char** data)
   return msg;
 }
 
-/** state HELPERS **/
 int evaluate_tx_state(struct TX_State *state, struct pkt *pkt)
 {
     if (!validate_checksum(pkt))
@@ -199,7 +278,7 @@ int evaluate_tx_state(struct TX_State *state, struct pkt *pkt)
 
 int evaluate_rx_state(struct RX_State *state, struct pkt *pkt)
 {
-    if (!validate_checksum(pkt))
+    if (!validate_checksum(pkt) && state != NULL)
     {
         return PKT_CORRUPT;
     }
@@ -223,19 +302,6 @@ int toggle(int binary_num)
 }
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
-
-int CHANNEL_IN_USE; //used to keep the channel clear
-
-struct TX_State *TX_STATE[2];
-struct TX_STATE *ATX_STATE = WAIT_FOR_0_FROM_ABOVE;
-struct RX_STATE *ARX_STATE = WAIT_FOR_SEQ0;
-
-struct RX_State *RX_STATE[2];
-struct TX_STATE *BTX_STATE = WAIT_FOR_0_FROM_ABOVE;
-struct RX_STATE *BRX_STATE = WAIT_FOR_SEQ0;
-
-struct pkt LAST_UNACKED_PKT[2];
-
 void output(int A_or_B, struct msg *msg, struct pkt *pkt)
 {
     /*locals*/
@@ -252,7 +318,7 @@ void output(int A_or_B, struct msg *msg, struct pkt *pkt)
     DEBUG(("->Created packet"));
     DEBUG_PKT(pkt);
     tolayer3(A_or_B, *pkt);
-    starttimer(A_or_B, TIMERVAL);
+    starttimer(A_or_B, TIMER_INCREMENT);
     CHANNEL_IN_USE = 1;
     TX_STATE[A_or_B] = TX_STATE[A_or_B]->next_state;
     LAST_UNACKED_PKT[A_or_B] = *pkt;
@@ -271,38 +337,48 @@ void input(int A_or_B, struct pkt *pkt, struct msg *msg)
     DEBUG(("->Received Packet"));
     DEBUG_PKT(pkt);
     CHANNEL_IN_USE = 0;
-    switch (evaluate_tx_state(TX_STATE[A_or_B], pkt)) {
-      case PKT_CORRUPT :
-        DEBUG(("-->Packet Corrupted"));
-        break;
-      case PKT_NAK :
-        DEBUG(("-->Packet is a NAK"));
-        break;
-      case PKT_OK :
-        DEBUG(("-->Packet is OK"));
-        stoptimer(A_or_B);
-        TX_STATE[A_or_B] = TX_STATE[A_or_B]->next_state;
-        break;
+    if (A_or_B == A) {
+      switch (evaluate_tx_state(TX_STATE[A_or_B], pkt)) {
+        case PKT_CORRUPT :
+           DEBUG(("-->Packet Corrupted"));
+           //Do Nothing
+           break;
+         case PKT_NAK :
+           DEBUG(("-->Packet is a NAK"));
+           //Do Nothing
+           break;
+         case PKT_OK :
+           DEBUG(("-->Received ACK"));
+           stoptimer(A_or_B);
+           TX_STATE[A_or_B] = TX_STATE[A_or_B]->next_state;
+           break;
+       }
     }
-    switch (evaluate_rx_state(RX_STATE[A_or_B], pkt)) {
-      case PKT_CORRUPT :
-        DEBUG(("-->Packet Corrupted"));
-        break;
-      case PKT_DUP :
-        DEBUG(("-->Packet is a duplicate"));
-        ackpkt_init(retpkt, -1, pkt->seqnum);
-        tolayer3(A_or_B, *retpkt);
-        DEBUG(("->Sent ACK%d",retpkt->acknum));
-        DEBUG_PKT(retpkt);
-        break;
-      case PKT_OK :
-        DEBUG(("-->Packet contains valid data segment"));
-        ackpkt_init(retpkt, -1, pkt->seqnum);
-        tolayer3(A_or_B, *retpkt);
-        RX_STATE[A_or_B] = RX_STATE[A_or_B]->next_state;
-        DEBUG(("->Sent ACK%d",retpkt->acknum));
-        DEBUG_PKT(retpkt);
-        break;
+    if (A_or_B == B) {
+      switch (evaluate_rx_state(RX_STATE[A_or_B], pkt)) {
+        case PKT_CORRUPT :
+          DEBUG(("-->Packet Corrupted"));
+          nakpkt_init(retpkt);
+          tolayer3(A_or_B, *retpkt);
+          DEBUG(("->Sent NAK"));
+          DEBUG_PKT(retpkt);
+          break;
+        case PKT_DUP :
+          DEBUG(("-->Packet is a duplicate"));
+          ackpkt_init(retpkt, pkt->seqnum);
+          tolayer3(A_or_B, *retpkt);
+          DEBUG(("->Sent ACK%d",retpkt->acknum));
+          DEBUG_PKT(retpkt);
+          break;
+        case PKT_OK :
+          DEBUG(("-->Packet contains valid data segment"));
+          ackpkt_init(retpkt, pkt->seqnum);
+          tolayer3(A_or_B, *retpkt);
+          RX_STATE[A_or_B] = RX_STATE[A_or_B]->next_state;
+          DEBUG(("->Sent ACK%d",retpkt->acknum));
+          DEBUG_PKT(retpkt);
+          break;
+      }
     }
     free(retpkt);
 }
@@ -311,10 +387,9 @@ void timerinterrupt(int A_or_B)
 {
     DEBUG(("->Timed out"));
     tolayer3(A_or_B, LAST_UNACKED_PKT[A_or_B]);
-    starttimer(A_or_B, TIMERVAL);
+    starttimer(A_or_B, TIMER_INCREMENT);
     DEBUG(("->Resent packet"));
     DEBUG_PKT((&LAST_UNACKED_PKT[A_or_B]));
-
 }
 
 /* called from layer 5, passed the data to be sent to other side */
@@ -424,48 +499,7 @@ the emulator, you're welcome to look at the code - but again, you should have
 to, and you definitely should not have to modify
 ******************************************************************/
 
-struct event {
-   float evtime;           /* event time */
-   int evtype;             /* event type code */
-   int eventity;           /* entity where event occurs */
-   struct pkt *pktptr;     /* ptr to packet (if any) assoc w/ this event */
-   struct event *prev;
-   struct event *next;
-};
 struct event *evlist = NULL;   /* the event list */
-
-/* possible events: */
-#define  TIMER_INTERRUPT 0
-#define  FROM_LAYER5     1
-#define  FROM_LAYER3     2
-
-#define  OFF    0
-#define  ON     1
-#define  A      0
-#define  B      1
-
-int TRACE = 1;             /* for my debugging */
-int nsim = 0;              /* number of messages from 5 to 4 so far */ 
-int nsimmax = 0;           /* number of msgs to generate, then stop */
-float time = 0.000;
-float lossprob;            /* probability that a packet is dropped  */
-float corruptprob;         /* probability that one bit is packet is flipped */
-float lambda;              /* arrival rate of messages from layer 5 */   
-int   ntolayer3;           /* number sent into layer 3 */
-int   nlost;               /* number lost in media */
-int   ncorrupt;            /* number corrupted by media*/
-
-void init();
-void generate_next_arrival();
-void tolayer5(int AorB, char datasent[20]);
-void tolayer3(int AorB, struct pkt packet);
-void starttimer(int AorB, float increment);
-void stoptimer(int AorB);
-void insertevent(struct event *p);
-void init();
-float jimsrand();
-void printevlist();
-
 int main()
 {
    struct event *eventptr;
