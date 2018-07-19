@@ -88,7 +88,7 @@ void printevlist();
 /**** TX ****/
 #define WINDOW_SIZE  10
 #define QUEUE_SIZE   50
-#define TIMEOUT      30.0f
+#define TIMEOUT      40.0f
 /**** RX ****/
 
 /******** DEBUG ********/
@@ -162,7 +162,8 @@ void input__sender_accept_packet(int A_or_B, struct pkt *pkt);
 void input__sender_reject_packet(int A_or_B, struct pkt *pkt);
 void (*input__receiver_logic(int, struct pkt*))(int A_or_B, struct pkt *pkt);
 void input__receiver_accept_packet(int A_or_B, struct pkt *pkt);
-void input__receiver_reject_packet(int A_or_B, struct pkt *pkt);
+void input__receiver_send_dup_ack(int A_or_B, struct pkt *pkt);
+void input__receiver_send_nak(int A_or_B, struct pkt *pkt);
 void input__receiver_ignore(int A_or_B, struct pkt *pkt);
 void adjust_timer(int A_or_B);
 void output(int A_or_B, struct msg *msg);
@@ -301,7 +302,7 @@ void set_new_base(struct sender *sender, int new_base, int A_or_B)
         pkt_init(pkt, sender->next_seqnum, RECEIVER[A_or_B].last_acknum, msg);
         append_packet(sender, pkt);
         tolayer3(A_or_B, *pkt);
-        DEBUG(("Popped msg from message queue and sent SEQ:%d", pkt->seqnum));
+        DEBUG(("------>Popped msg from message queue and sent SEQ:%d", pkt->seqnum));
     }
 }
 
@@ -315,9 +316,10 @@ void resend_window(struct sender *sender, int A_or_B)
     /*function body*/
     for (i = 0; i < stop; i++)
     {
+        sender->window[i].pkt.acknum = RECEIVER[A_or_B].last_acknum;
         tolayer3(A_or_B, (sender->window[i]).pkt);
         sender->window[i].timestamp = time;
-        DEBUG(("------>resent %d", i + sender->base));
+        DEBUG(("------>Resent SEQ:%d", i + sender->base));
     }
 }
 
@@ -399,6 +401,9 @@ void input__sender_reject_packet(int A_or_B, struct pkt *pkt)
     /*locals init*/
     /*function logic*/
     DEBUG(("------>Rejected packet"));
+    if ( !validate_checksum(pkt) ) {
+        DEBUG(("-------->Packet is corrupt"));
+    }
 }
 
 void input__receiver_accept_packet(int A_or_B, struct pkt *pkt)
@@ -422,19 +427,38 @@ void input__receiver_accept_packet(int A_or_B, struct pkt *pkt)
     free(ackpkt);
 }
 
-void input__receiver_reject_packet(int A_or_B, struct pkt *pkt)
+void input__receiver_send_nak(int A_or_B, struct pkt *pkt)
 {
     /*locals*/
     struct pkt *nakpkt;
     /*locals init*/
     nakpkt = (struct pkt*)malloc(sizeof(struct pkt));
     /*function logic*/
-    DEBUG(("------>Rejected packet"));
+    DEBUG(("------>Packet is corrupt"));
     nakpkt_init(nakpkt);
     tolayer3(A_or_B, *nakpkt);
     DEBUG(("------>Sent NAK"));
     free(nakpkt);
 }
+
+void input__receiver_send_dup_ack(int A_or_B, struct pkt *pkt)
+{
+    /*locals*/
+    struct pkt *ackpkt;
+    int last_acknum;
+    int expected_seqnum;
+    /*locals init*/
+    ackpkt = (struct pkt*)malloc(sizeof(struct pkt));
+    last_acknum = RECEIVER[A_or_B].last_acknum;
+    expected_seqnum = RECEIVER[A_or_B].expected_seqnum;
+    /*function logic*/
+    DEBUG(("------>Received out of order Packet (Expected:%d; Received:%d", expected_seqnum, pkt->seqnum));
+    ackpkt_init(ackpkt, last_acknum);
+    tolayer3(A_or_B, *ackpkt);
+    DEBUG(("------>Sent duplicate ACK:%d", last_acknum));
+    free(ackpkt);
+}
+
 
 void input__receiver_ignore(int A_or_B, struct pkt *pkt)
 {
@@ -453,13 +477,15 @@ void (*input__receiver_logic(int A_or_B, struct pkt* pkt))(int, struct pkt*)
     packet_corrupted = !(validate_checksum(pkt));
     packet_in_order  = pkt->seqnum == RECEIVER[A_or_B].expected_seqnum;
     /*function logic*/
-    if ( !packet_corrupted && packet_in_order ) {
+    if ( packet_corrupted ) {
+        return input__receiver_send_nak;
+    } else if ( packet_in_order ) {
         return input__receiver_accept_packet;
-    } else if ( !packet_corrupted && pkt->seqnum < 0 ) {
-        //packet is a ACK or NAK do nothing
+    } else if ( pkt->seqnum < 0 ) {
         return input__receiver_ignore;
+        //if seqnum < 0 than the packet is a pure ACK or NAK
     } else {
-        return input__receiver_reject_packet;
+        return input__receiver_send_dup_ack;
     }
 }
 
@@ -495,7 +521,7 @@ void output(int A_or_B, struct msg *msg)
         append_packet(sender, pkt);
         tolayer3(A_or_B, *pkt);
         DEBUG(("-->on output:"));
-        DEBUG(("---->sent packet"));
+        DEBUG(("---->sent SEQ:%d", pkt->seqnum));
         if ( sender->next_seqnum == sender->base+1 ) {
             DEBUG(("---->started timer"));
             starttimer(A_or_B, TIMEOUT);
