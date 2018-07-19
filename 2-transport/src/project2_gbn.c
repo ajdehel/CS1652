@@ -86,8 +86,9 @@ void printevlist();
 
 /******** FSM ********/
 /**** TX ****/
-#define WINDOW_SIZE 10
-#define TIMEOUT 30.0f
+#define WINDOW_SIZE  10
+#define QUEUE_SIZE   50
+#define TIMEOUT      30.0f
 /**** RX ****/
 
 /******** DEBUG ********/
@@ -103,7 +104,7 @@ void printevlist();
 #endif
 /** PACKET **/
 #ifdef DEBUG_PACKETS
-#  define DEBUG_PKT(x) printf("\nDEBUG***PACKET -> SEQNUM:%d | ACKNUM:%d | CHECKSUM:%u | PAYLOAD:%s", x->seqnum, x->acknum, x->checksum, x->payload);
+#  define DEBUG_PKT(x) printf("\nDEBUG***PACKET -> SEQNUM:%d | ACKNUM:%d | CHECKSUM:%u", x->seqnum, x->acknum, x->checksum);
 #else
 #  define DEBUG_PKT(x) do {} while (0)
 #endif
@@ -125,6 +126,10 @@ struct sender
     int base;
     int next_seqnum;
     struct window_entry window[WINDOW_SIZE];
+    struct msg msg_queue[QUEUE_SIZE];
+    int _msg_head;
+    int _msg_tail;
+    int q_length;
 };
 
 struct receiver
@@ -145,9 +150,13 @@ struct pkt* nakpkt_init(struct pkt *pkt);
 int validate_checksum(struct pkt* pkt);
 int generate_checksum(struct pkt* pkt);
 struct msg* msg_init(struct msg *msg, char data[]);
+void sender_init(struct sender *sender);
 void append_packet(struct sender *sender, struct pkt *pkt);
-void set_new_base(struct sender *sender, int new_base);
+void set_new_base(struct sender *sender, int new_base, int A_or_B);
 void resend_window(struct sender *sender, int A_or_B);
+void append_to_msg_queue(struct sender *sender, struct msg *msg);
+void pop_from_msg_queue(struct sender *sender, struct msg *msg);
+void receiver_init(struct receiver *receiver);
 void (*input__sender_logic(int, struct pkt*))(int A_or_B, struct pkt *pkt);
 void input__sender_accept_packet(int A_or_B, struct pkt *pkt);
 void input__sender_reject_packet(int A_or_B, struct pkt *pkt);
@@ -240,6 +249,19 @@ struct msg* msg_init(struct msg *msg, char data[])
 }
 
 /**** struct sender ****/
+
+void sender_init(struct sender *sender)
+{
+    /*locals*/
+    /*locals init*/
+    /*function logic*/
+    sender->base = 1;
+    sender->next_seqnum = 1;
+    sender->q_length = 0;
+    sender->_msg_head = 0;
+    sender->_msg_tail = 0;
+}
+
 void append_packet(struct sender *sender, struct pkt *pkt)
 {
     /*locals*/
@@ -254,21 +276,32 @@ void append_packet(struct sender *sender, struct pkt *pkt)
     sender->next_seqnum++;
 }
 
-void set_new_base(struct sender *sender, int new_base)
+void set_new_base(struct sender *sender, int new_base, int A_or_B)
 {
     /*locals*/
     int offset;
     int stop_index;
     int i;
+    struct msg *msg;
+    struct pkt *pkt;
     /*locals init*/
     offset = new_base - sender->base;
     stop_index = sender->next_seqnum - new_base;
+    msg = (struct msg*)malloc(sizeof(struct msg));
+    pkt = (struct pkt*)malloc(sizeof(struct pkt));
     /*function logic*/
     sender->base = new_base;
-    if (sender->base != sender->next_seqnum) {
+    if ( sender->base != sender->next_seqnum ) {
         for (i = 0; i < stop_index; i++) {
             sender->window[i] = sender->window[i+offset];
         }
+    }
+    while ( sender->q_length > 0 &&  sender->next_seqnum < (sender->base + WINDOW_SIZE) ) {
+        pop_from_msg_queue(sender, msg);
+        pkt_init(pkt, sender->next_seqnum, RECEIVER[A_or_B].last_acknum, msg);
+        append_packet(sender, pkt);
+        tolayer3(A_or_B, *pkt);
+        DEBUG(("Popped msg from message queue and sent SEQ:%d", pkt->seqnum));
     }
 }
 
@@ -286,6 +319,42 @@ void resend_window(struct sender *sender, int A_or_B)
         sender->window[i].timestamp = time;
         DEBUG(("------>resent %d", i + sender->base));
     }
+}
+
+void append_to_msg_queue(struct sender *sender, struct msg *msg)
+{
+    /*locals*/
+    /*locals init*/
+    /*function logic*/
+    sender->msg_queue[sender->_msg_tail++] = *msg;
+    sender->_msg_tail++;
+    if ( sender->_msg_tail >= QUEUE_SIZE ) {
+        sender->_msg_tail = 0;
+    }
+    sender->q_length++;
+}
+
+void pop_from_msg_queue(struct sender *sender, struct msg *msg)
+{
+    /*locals*/
+    /*locals init*/
+    /*function logic*/
+    *msg = sender->msg_queue[sender->_msg_head];
+    sender->_msg_head++;
+    if ( sender->_msg_head >= QUEUE_SIZE ) {
+        sender->_msg_head = 0;
+    }
+    sender->q_length--;
+}
+
+/**** struct receiver ****/
+void receiver_init(struct receiver *receiver)
+{
+    /*locals*/
+    /*locals init*/
+    /*function logic*/
+    receiver->expected_seqnum = 1;
+    receiver->last_acknum = -1;
 }
 
 /******** UNIFIED FUNCTIONS ********/
@@ -316,7 +385,7 @@ void input__sender_accept_packet(int A_or_B, struct pkt *pkt)
     if ( pkt->acknum < sender->base ) {
         DEBUG(("------>ACK is a duplicate"));
     } else {
-        set_new_base(sender, pkt->acknum + 1);
+        set_new_base(sender, pkt->acknum + 1, A_or_B);
         stoptimer(A_or_B);
         if ( sender->base != sender->next_seqnum ) {
             adjust_timer(A_or_B);
@@ -432,6 +501,9 @@ void output(int A_or_B, struct msg *msg)
             starttimer(A_or_B, TIMEOUT);
         }
         DEBUG_PKT(pkt);
+    } else {
+        append_to_msg_queue(sender, msg);
+        DEBUG(("Window is full, added msg to queue."));
     }
 }
 
@@ -446,7 +518,7 @@ void input(int A_or_B, struct pkt *pkt)
     input__receiver_logic(A_or_B, pkt)(A_or_B, pkt);
     DEBUG(("---->Sender:"));
     input__sender_logic(A_or_B, pkt)(A_or_B, pkt);
-    DEBUG(("\nMESSAGES ACKED:%d", (SENDER[A].base + SENDER[B].base - 2)));
+    DEBUG(("MESSAGES ACKED:%d", (SENDER[A].base + SENDER[B].base - 2)));
 }
 
 void timerinterrupt(int A_or_B)
@@ -467,10 +539,8 @@ void init_(int A_or_B)
     /*locals*/
     /*local init*/
     /*function logic*/
-    SENDER[A_or_B].base = 1;
-    SENDER[A_or_B].next_seqnum = 1;
-    RECEIVER[A_or_B].expected_seqnum = 1;
-    RECEIVER[A_or_B].last_acknum = -1;
+    sender_init(&SENDER[A_or_B]);
+    receiver_init(&RECEIVER[A_or_B]);
 }
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
