@@ -88,7 +88,7 @@ void printevlist();
 /**** TX ****/
 #define WINDOW_SIZE  10
 #define QUEUE_SIZE   50
-#define TIMEOUT      40.0f
+#define TIMEOUT      35.0f
 /**** RX ****/
 
 /******** DEBUG ********/
@@ -452,7 +452,7 @@ void input__receiver_send_dup_ack(int A_or_B, struct pkt *pkt)
     last_acknum = RECEIVER[A_or_B].last_acknum;
     expected_seqnum = RECEIVER[A_or_B].expected_seqnum;
     /*function logic*/
-    DEBUG(("------>Received out of order Packet (Expected:%d; Received:%d", expected_seqnum, pkt->seqnum));
+    DEBUG(("------>Received out of order Packet (Expected:%d; Received:%d)", expected_seqnum, pkt->seqnum));
     ackpkt_init(ackpkt, last_acknum);
     tolayer3(A_or_B, *ackpkt);
     DEBUG(("------>Sent duplicate ACK:%d", last_acknum));
