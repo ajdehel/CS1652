@@ -61,6 +61,11 @@ public class NetworkSimulator
         }
 
     }
+
+    public static double getTime()
+    {
+        return time;
+    }
     
     // Starts the simulation. It will end when no more packets are in the
     // medium
