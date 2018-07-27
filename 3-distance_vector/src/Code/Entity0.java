@@ -3,6 +3,7 @@ public class Entity0 extends Entity
     // Perform any necessary initialization in the constructor
     public Entity0()
     {
+        super(0, new int[]{0, 1, 3, 7}, new int[]{1, 2, 3});
     }
     
     // Handle updates when a packet is received.  You will need to call
@@ -10,6 +11,8 @@ public class Entity0 extends Entity
     // send to update.  Be careful to construct the source and destination of
     // the packet correctly.  Read the warning in NetworkSimulator.java for more
     // details.
+
+    /*
     public void update(Packet p)
     {        
     }
@@ -17,7 +20,7 @@ public class Entity0 extends Entity
     public void linkCostChangeHandler(int whichLink, int newCost)
     {
     }
-    
+    */
     public void printDT()
     {
         System.out.println();

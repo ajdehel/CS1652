@@ -58,6 +58,7 @@ public class NetworkSimulator
         if (linkChanges)
         {
             eventList.add(new Event(10000.0, LINKCHANGE, 0));
+            eventList.add(new Event(20000.0, LINKCHANGE, 0));
         }
 
     }

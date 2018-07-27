@@ -3,6 +3,7 @@ public class Entity2 extends Entity
     // Perform any necessary initialization in the constructor
     public Entity2()
     {
+        super(2, new int[]{3, 1, 0, 2}, new int[]{0, 1, 3});
     }
     
     // Handle updates when a packet is received.  Students will need to call
@@ -10,6 +11,8 @@ public class Entity2 extends Entity
     // send to update.  Be careful to construct the source and destination of
     // the packet correctly.  Read the warning in NetworkSimulator.java for more
     // details.
+
+    /*
     public void update(Packet p)
     {
     }
@@ -17,6 +20,7 @@ public class Entity2 extends Entity
     public void linkCostChangeHandler(int whichLink, int newCost)
     {
     }
+    */
     
     public void printDT()
     {
