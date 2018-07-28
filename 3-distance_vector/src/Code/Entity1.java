@@ -35,7 +35,7 @@ public class Entity1 extends Entity
                 continue;
             }
             
-            System.out.print("   " + i + "|");
+            System.out.print("    " + i + "|");
             for (int j = 0; j < NetworkSimulator.NUMENTITIES; j += 2)
             {
             

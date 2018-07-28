@@ -25,11 +25,11 @@ public class Entity0 extends Entity
     {
         System.out.println();
         System.out.println("           via");
-        System.out.println(" D0 |   1   2   3");
-        System.out.println("----+------------");
+        System.out.println("  D0 |   1   2   3");
+        System.out.println(" ----+------------");
         for (int i = 1; i < NetworkSimulator.NUMENTITIES; i++)
         {
-            System.out.print("   " + i + "|");
+            System.out.print("    " + i + "|");
             for (int j = 1; j < NetworkSimulator.NUMENTITIES; j++)
             {
                 if (distanceTable[i][j] < 10)

@@ -5,9 +5,9 @@ public class Entity extends AbstractEntity
 
     public static final int INFINITY = 999;
 
-    private int label;
+    protected int label;
 
-    private int[] directCosts = new int[NetworkSimulator.NUMENTITIES];
+    protected int[] directCosts = new int[NetworkSimulator.NUMENTITIES];
 
     protected int[] neighbors;
 
@@ -32,12 +32,12 @@ public class Entity extends AbstractEntity
             this.distanceTable[this.label][j] = costs[j];
         }
         System.out.println("");
-        System.out.println("+========================+");
+        System.out.println("+=========================+");
         System.out.printf( "|At Time %-15f |\n", NetworkSimulator.getTime());
-        System.out.println("+========================+========================+");
+        System.out.println("+=========================+=========================+");
         this.printCosts();
         this.sendUpdates();
-        System.out.println("+=================================================+");
+        System.out.println("+===================================================+");
     }
 
     private boolean computeEstimates()
@@ -80,9 +80,9 @@ public class Entity extends AbstractEntity
         for ( int i = 0; i < this.neighbors.length; i++ ) {
             updatePacket = new Packet(this.label, neighbors[i], this.distanceTable[this.label]);
             NetworkSimulator.toLayer2(updatePacket);
-            System.out.println(updatePacket.toString());
+            System.out.println("    " + updatePacket.toString());
         }
-        System.out.println("Node:" + this.label + " Sent updates to neighbors" );
+        System.out.println(" Node:" + this.label + " Sent updates to neighbors" );
     }
 
     public void update(Packet p)
@@ -95,21 +95,21 @@ public class Entity extends AbstractEntity
         costsChanged = false;
         /*function body*/
         System.out.println("");
-        System.out.println("+========================+");
+        System.out.println("+=========================+");
         System.out.printf( "|At Time %-15f |\n", NetworkSimulator.getTime());
-        System.out.println("+========================+========================+");
-        System.out.println("Node:" + this.label + " Received Update from Node:" + src);
+        System.out.println("+=========================+=========================+");
+        System.out.println(" Node:" + this.label + " Received Update from Node:" + src);
         //update table row for src
         for ( int i = 0; i < NetworkSimulator.NUMENTITIES; i++ ) {
             this.distanceTable[src][i] = p.getMincost(i);
         }
         costsChanged = computeEstimates();
         if ( costsChanged ) {
-            System.out.println("Node:" + this.label + " Changed estimates" );
+            System.out.println(" Node:" + this.label + " Changed estimates" );
             this.sendUpdates();
         }
         this.printDT();
-        System.out.println("+=================================================+");
+        System.out.println("+===================================================+");
     }
 
     public void linkCostChangeHandler(int whichLink, int newCost)
@@ -119,13 +119,13 @@ public class Entity extends AbstractEntity
         /*function body*/
         this.directCosts[whichLink] = newCost;
         System.out.println("");
-        System.out.println("+========================+");
+        System.out.println("+=========================+");
         System.out.printf( "|At Time %-15f |\n", NetworkSimulator.getTime());
-        System.out.println("+========================+========================+");
-        System.out.println("Node:" + this.label + " Changed cost to " + whichLink + " to " + newCost + ".");
+        System.out.println("+=========================+=========================+");
+        System.out.println(" Node:" + this.label + " Changed cost to " + whichLink + " to " + newCost + ".");
         this.computeEstimates();
         this.sendUpdates();
-        System.out.println("+=================================================+");
+        System.out.println("+===================================================+");
     }
 
     // Print the distance table of the current entity.
@@ -135,7 +135,7 @@ public class Entity extends AbstractEntity
 
     public void printCosts()
     {
-        System.out.println("Node:" + this.label + " Costs: " + Arrays.toString(this.distanceTable[this.label]) );
+        System.out.println(" Node:" + this.label + " Costs: " + Arrays.toString(this.distanceTable[this.label]) );
     }
 }
 

@@ -25,8 +25,8 @@ public class Entity3 extends Entity
     public void printDT()
     {
         System.out.println("         via");
-        System.out.println(" D3 |   0   2");
-        System.out.println("----+--------");
+        System.out.println("  D3 |   0   2");
+        System.out.println(" ----+--------");
         for (int i = 0; i < NetworkSimulator.NUMENTITIES; i++)
         {
             if (i == 3)
@@ -34,7 +34,7 @@ public class Entity3 extends Entity
                 continue;
             }
             
-            System.out.print("   " + i + "|");
+            System.out.print("    " + i + "|");
             for (int j = 0; j < NetworkSimulator.NUMENTITIES; j += 2)
             {
                
